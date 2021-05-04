@@ -5,7 +5,10 @@ from math import fabs
 from rp2 import asm_pio, StateMachine, PIO
 
 _irq_count = 0
-temp_data = []
+temp_data = bytearray([0 for i in range(5)])
+
+EIGHT_1_BIT_MASK = const(0b11111111)
+SEVEN_1_BIT_MASK = const(0b01111111)
 
 
 @asm_pio(set_init=PIO.OUT_HIGH, autopush=True, push_thresh=8)
@@ -49,7 +52,7 @@ def dht_get_data():
 
 def handle_dht_irq(sm):
     global _irq_count, temp_data
-    temp_data.append(sm.get())
+    temp_data[_irq_count] = (sm.get())
     _irq_count += 1
 
 
@@ -79,7 +82,8 @@ class DHT(object):
                 fabs(ticks_diff(ticks_ms(), self._last_pull_time)) > self._min_interval:
             global _irq_count, temp_data
             _irq_count = 0
-            temp_data = []
+            for i in range(5):
+                temp_data[i] = 0
             
             # start state machine
             self._sm.put(0)
@@ -88,17 +92,17 @@ class DHT(object):
             utime.sleep_ms(20)
             
             if _irq_count != 5:
-                print("Didn't receive enought data. Received {} byte(s).".format(len(temp_data)))
+                print("Didn't receive enough data. Received {} byte(s).".format(len(temp_data)))
                 return
             
             # data validation, 1st byte + 2nd byte + 3rd byte + 4th byte == 5th byte (last 8 bits)
-            check_sum = (temp_data[0] + temp_data[1] + temp_data[2] + temp_data[3]) & 0b11111111
+            check_sum = (temp_data[0] + temp_data[1] + temp_data[2] + temp_data[3]) & EIGHT_1_BIT_MASK
             if check_sum != temp_data[4]:
                 print('Data validation error.')
                 return
             
             # temperature data is last 15 bits, first bit if 1, is negative. data is 10x of actual value
-            raw_temperature = ((temp_data[2] & 0b1111111) << 8) + temp_data[3]
+            raw_temperature = ((temp_data[2] & SEVEN_1_BIT_MASK) << 8) + temp_data[3]
             self._temperature = raw_temperature / 10
             if temp_data[2] >> 7 == 1:
                 self._temperature *= -1
